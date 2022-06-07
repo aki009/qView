@@ -12,7 +12,7 @@
 #include <QGuiApplication>
 #include <QScreen>
 
-QVImageCore::QVImageCore(QObject *parent) : QObject(parent)
+QVImageCore::QVImageCore(QObject *parent) : QObject(parent), lastSortMode(-1)
 {
 // Set allocation limit to 8 GiB on Qt6
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -260,81 +260,84 @@ void QVImageCore::updateFolderInfo()
 
     QPair<QString, uint> dirInfo = {currentFileDetails.fileInfo.absoluteDir().path(),
                                     currentFileDetails.fileInfo.dir().count()};
+
     // If the current folder changed since the last image, assign a new seed for random sorting
     if (lastDirInfo != dirInfo)
     {
         randomSortSeed = std::chrono::system_clock::now().time_since_epoch().count();
+        currentFileDetails.folderFileInfoList = getCompatibleFiles();
     }
-    lastDirInfo = dirInfo;
-
-
-    currentFileDetails.folderFileInfoList = getCompatibleFiles();
 
     // Sorting
+    if((lastSortMode != sortMode) || (lastDirInfo!=dirInfo))
+    {
+        lastSortMode = sortMode;
 
-    if (sortMode == 0) // Natural sorting
-    {
-        QCollator collator;
-        collator.setNumericMode(true);
-        std::sort(currentFileDetails.folderFileInfoList.begin(),
-                  currentFileDetails.folderFileInfoList.end(),
-                  [&collator, this](const QFileInfo &file1, const QFileInfo &file2)
+        if (sortMode == 0) // Natural sorting
         {
-            if (sortDescending)
-                return collator.compare(file1.fileName(), file2.fileName()) > 0;
-            else
-                return collator.compare(file1.fileName(), file2.fileName()) < 0;
-        });
-    }
-    else if (sortMode == 1) // last modified
-    {
-        std::sort(currentFileDetails.folderFileInfoList.begin(),
-                  currentFileDetails.folderFileInfoList.end(),
-                  [this](const QFileInfo &file1, const QFileInfo &file2)
+            QCollator collator;
+            collator.setNumericMode(true);
+            std::sort(currentFileDetails.folderFileInfoList.begin(),
+                      currentFileDetails.folderFileInfoList.end(),
+                      [&collator, this](const QFileInfo &file1, const QFileInfo &file2)
+            {
+                if (sortDescending)
+                    return collator.compare(file1.fileName(), file2.fileName()) > 0;
+                else
+                    return collator.compare(file1.fileName(), file2.fileName()) < 0;
+            });
+        }
+        else if (sortMode == 1) // last modified
         {
-            if (sortDescending)
-                return file1.lastModified() < file2.lastModified();
-            else
-                return file1.lastModified() > file2.lastModified();
-        });
-    }
-    else if (sortMode == 2) // size
-    {
-        std::sort(currentFileDetails.folderFileInfoList.begin(),
-                  currentFileDetails.folderFileInfoList.end(),
-                  [this](const QFileInfo &file1, const QFileInfo &file2)
+            std::sort(currentFileDetails.folderFileInfoList.begin(),
+                      currentFileDetails.folderFileInfoList.end(),
+                      [this](const QFileInfo &file1, const QFileInfo &file2)
+            {
+                if (sortDescending)
+                    return file1.lastModified() < file2.lastModified();
+                else
+                    return file1.lastModified() > file2.lastModified();
+            });
+        }
+        else if (sortMode == 2) // size
         {
-            if (sortDescending)
-                return file1.size() < file2.size();
-            else
-                return file1.size() > file2.size();
-        });
-    }
-    else if (sortMode == 3) // type
-    {
-        QMimeDatabase mimeDb;
+            std::sort(currentFileDetails.folderFileInfoList.begin(),
+                      currentFileDetails.folderFileInfoList.end(),
+                      [this](const QFileInfo &file1, const QFileInfo &file2)
+            {
+                if (sortDescending)
+                    return file1.size() < file2.size();
+                else
+                    return file1.size() > file2.size();
+            });
+        }
+        else if (sortMode == 3) // type
+        {
+            QMimeDatabase mimeDb;
 
-        QCollator collator;
-        std::sort(currentFileDetails.folderFileInfoList.begin(),
-                  currentFileDetails.folderFileInfoList.end(),
-                  [&mimeDb, &collator, this](const QFileInfo &file1, const QFileInfo &file2)
+            QCollator collator;
+            std::sort(currentFileDetails.folderFileInfoList.begin(),
+                      currentFileDetails.folderFileInfoList.end(),
+                      [&mimeDb, &collator, this](const QFileInfo &file1, const QFileInfo &file2)
+            {
+                QMimeType mime1 = mimeDb.mimeTypeForFile(file1);
+                QMimeType mime2 = mimeDb.mimeTypeForFile(file2);
+
+                if (sortDescending)
+                    return collator.compare(mime1.name(), mime2.name()) > 0;
+                else
+                    return collator.compare(mime1.name(), mime2.name()) < 0;
+            });
+        }
+        else if (sortMode == 4) // Random
         {
-            QMimeType mime1 = mimeDb.mimeTypeForFile(file1);
-            QMimeType mime2 = mimeDb.mimeTypeForFile(file2);
-
-            if (sortDescending)
-                return collator.compare(mime1.name(), mime2.name()) > 0;
-            else
-                return collator.compare(mime1.name(), mime2.name()) < 0;
-        });
+            std::shuffle(currentFileDetails.folderFileInfoList.begin(), currentFileDetails.folderFileInfoList.end(), std::default_random_engine(randomSortSeed));
+        }
     }
-    else if (sortMode == 4) // Random
-    {
-        std::shuffle(currentFileDetails.folderFileInfoList.begin(), currentFileDetails.folderFileInfoList.end(), std::default_random_engine(randomSortSeed));
-    }
-
     // Set current file index variable
     currentFileDetails.loadedIndexInFolder = currentFileDetails.folderFileInfoList.indexOf(currentFileDetails.fileInfo);
+
+    lastDirInfo = dirInfo;
 }
 
 void QVImageCore::requestCaching()

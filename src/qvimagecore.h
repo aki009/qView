@@ -86,6 +86,7 @@ private:
     bool isLoopFoldersEnabled;
     int preloadingMode;
     int sortMode;
+    int lastSortMode;
     bool sortDescending;
 
     QPair<QString, uint> lastDirInfo;
